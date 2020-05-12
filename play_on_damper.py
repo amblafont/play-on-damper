@@ -16,12 +16,12 @@ STEP_S = 0.5
 
 def damper_event(media, switch):
    if switch:
-       newtime = self._media.time - STEP_S
-       self._media.seek(newtime)
-       self._media.play()
+       newtime = media.time - STEP_S
+       media.seek(newtime)
+       media.play()
    else:
-       self._media.pause()
-   print(self._media.time)
+       media.pause()
+   print(media.time)
 
 
 # inspired by 
