@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MP3 Player with MIDI and File Selection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin-top: 20px;
+            cursor: pointer;
+        }
+        #audioPlayer {
+            display: block;
+            margin-top: 20px;
+            width:100%;
+        }
+    </style>
+</head>
+<body>
+    <h1>MP3 Player with MIDI and File Selection</h1>
+    <input type="file" id="fileInput" accept=".m4a,audio/mpeg" />
+    <audio id="audioPlayer" controls src="./star eyes flanagan.mp3">
+        Your browser does not support the audio element.
+    </audio>
+    Number of seconds to rewind:
+    <button type="button" onclick="changeValue(-1)">-</button>
+    <input id="quantity" type="number" value="5" min="0" max="100"  />
+    <button type="button" onclick="changeValue(1)">+</button>
+    <button type="button" onclick="audioPlayer.paused ? audioPlayer.play() : audioPlayer.pause()">Pause</button>
+    <button type="button" onclick="rewindAudio()">Rewind</button>
+    <button type="button" onclick="forwardAudio()">Forward</button>
+    <button type="button" onclick="initMIDI()">MIDI init</button>
+    <p id="filename">No file selected</p>
+    <p id="status"></p>
+    
+
+    <script>
+        function getRewindingSeconds() {
+            return parseInt(document.getElementById('quantity').value) || 5;
+        }
+        function changeValue(delta) {
+            const input = document.getElementById('quantity');
+            let value = getRewindingSeconds();
+            const min = parseInt(input.min) || -Infinity;
+            const max = parseInt(input.max) || Infinity;
+
+            value += delta;
+
+            if (value >= min && value <= max) {
+                input.value = value;
+            }
+        }
+
+        const fileInput = document.getElementById('fileInput');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const statusText = document.getElementById('status');
+        const filenameParagraph = document.getElementById('filename');
+        var topValue = 0;
+
+        function rewindAudio() {
+            const rewindSeconds = getRewindingSeconds();
+            audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - rewindSeconds);
+        }
+        function forwardAudio() {
+            const rewindSeconds = getRewindingSeconds();
+            audioPlayer.currentTime = audioPlayer.currentTime + rewindSeconds;
+        }
+
+        // Fonction pour ouvrir/créer la base
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open("audioDB", 1);
+
+                request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                db.createObjectStore("audios");
+                };
+
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function saveArrayBuffer(key, arrayBuffer) {
+            const db = await openDB();
+            const tx = db.transaction("audios", "readwrite");
+            const store = tx.objectStore("audios");
+            store.put(arrayBuffer, key);
+            await tx.complete;
+            db.close();
+        }
+
+        async function loadArrayBuffer(key) {
+            const db = await openDB();
+            const tx = db.transaction("audios", "readonly");
+            const store = tx.objectStore("audios");
+            const request = store.get(key);
+
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                db.close();
+                resolve(request.result); // ← c'est un ArrayBuffer
+                };
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function saveAudioFileLocally(file) {
+            // Read the file as an ArrayBuffer or Blob
+            const fileContent = await file.arrayBuffer();
+            saveArrayBuffer("audio", fileContent);
+            // localStorage.setItem('lastAudioFile', arrayBufferToBase64(fileContent)); // Save file URL
+            localStorage.setItem('lastAudioFileName', file.name); // Save file name
+            localStorage.setItem('lastAudioMime', file.type); 
+
+        };
+
+        // Handle file selection
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file)
+                return;
+
+            
+
+            const fileURL = URL.createObjectURL(file);
+            audioPlayer.src = fileURL;
+              //  audioPlayer.style.display = 'block';
+            filenameParagraph.textContent = `Now playing: ${file.name}`;
+            saveAudioFileLocally(file);
+            
+            // localStorage.setItem('lastAudioFile', fileURL); // Save file URL
+            // localStorage.setItem('lastAudioFileName', file.name); // Save file name
+        });
+
+            // Restore the last selected file on page load
+    window.addEventListener('load', () => {
+        // playFirstAudioFromOPFS();
+        const lastAudioFile = localStorage.getItem('lastAudioFile');
+        const lastAudioFileName = localStorage.getItem('lastAudioFileName');
+        const lastAudioMime = localStorage.getItem('lastAudioMime');
+        loadArrayBuffer("audio").then((buffer) => {
+            const blob = new Blob([buffer], { type: lastAudioMime }); //, { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            audioPlayer.src = url;
+            filenameParagraph.textContent = `Now playing: ${lastAudioFileName}`;
+        });
+    });
+
+        // Initialize MIDI
+        async function initMIDI() {
+            try {
+                const midiAccess = await navigator.requestMIDIAccess();
+                statusText.textContent = 'Status: MIDI Access Granted';
+
+                midiAccess.inputs.forEach((input) => {
+                    input.addEventListener('midimessage', handleMIDIMessage);
+                });
+
+                midiAccess.addEventListener('statechange', (event) => {
+                    const { port } = event;
+                    if (port.type === 'input' && port.state === 'connected') {
+                        port.addEventListener('midimessage', handleMIDIMessage);
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to initialize MIDI:', error);
+                statusText.textContent = 'Status: MIDI Access Denied';
+            }
+        }
+
+       
+
+        // Handle MIDI messages
+        function handleMIDIMessage(event) {
+            const [status, note, value] = event.data;
+            // Damper pedal: CC 64 with value 127 for full press
+            let damper = 64;
+            damper = 66;
+            if ((status & 0xf0) === 0xb0 && note === damper) {
+                if (value > topValue)
+                    topValue = value;
+        
+                if (audioPlayer.src && value == 127) {
+                    console.log('Damper pressed - Rewind!');
+                    audioPlayer.pause();
+                }
+                if (audioPlayer.src && (topValue - value) > 65) {
+                    topValue = 0;
+                    console.log('Damper pressed - Rewind!');
+                    rewindAudio();
+                    audioPlayer.play();
+                }
+                console.log("value: " + value);
+            }
+        }
+
+        
+    </script>
+</body>
+</html>
