@@ -1,6 +1,7 @@
 Plays a mp3 file as long as the damper (from a MIDI input) is pressed.
 Each time the damper is pressed, the track is rewinded of half a second.
 
+
 # Usage
 
 python3 play_on_damper.py path-to-audio-file
